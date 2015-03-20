@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Admin/Reports
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.5
  */
@@ -63,10 +63,7 @@ class EDD_Gateawy_Reports_Table extends WP_List_Table {
 	 * @return string Column Name
 	 */
 	public function column_default( $item, $column_name ) {
-		switch( $column_name ){
-			default:
-				return $item[ $column_name ];
-		}
+		return $item[ $column_name ];
 	}
 
 	/**
@@ -107,7 +104,7 @@ class EDD_Gateawy_Reports_Table extends WP_List_Table {
 	 * @since 1.5
 	 * @return void
 	 */
-	public function bulk_actions() {
+	public function bulk_actions( $which = '' ) {
 		// These aren't really bulk actions but this outputs the markup in the right place
 		edd_report_views();
 	}
@@ -133,9 +130,9 @@ class EDD_Gateawy_Reports_Table extends WP_List_Table {
 			$reports_data[] = array(
 				'ID'             => $gateway_id,
 				'label'          => $gateway['admin_label'],
-				'complete_sales' => $complete_count,
-				'pending_sales'  => $pending_count,
-				'total_sales'    => $complete_count + $pending_count
+				'complete_sales' => edd_format_amount( $complete_count, false ),
+				'pending_sales'  => edd_format_amount( $pending_count, false ),
+				'total_sales'    => edd_format_amount( $complete_count + $pending_count, false )
 			);
 		}
 

@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Admin/Payments
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.0
 */
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
  * @return      void
 */
 function edd_payment_history_page() {
-	global $edd_options;
+	$edd_payment = get_post_type_object( 'edd_payment' );
 
 	if ( isset( $_GET['view'] ) && 'view-order-details' == $_GET['view'] ) {
 		require_once EDD_PLUGIN_DIR . 'includes/admin/payments/view-order-details.php';
@@ -32,7 +32,7 @@ function edd_payment_history_page() {
 		$payments_table->prepare_items();
 	?>
 	<div class="wrap">
-		<h2><?php _e( 'Payment History', 'edd' ); ?></h2>
+		<h2><?php echo $edd_payment->labels->menu_name ?></h2>
 		<?php do_action( 'edd_payments_page_top' ); ?>
 		<form id="edd-payments-filter" method="get" action="<?php echo admin_url( 'edit.php?post_type=download&page=edd-payment-history' ); ?>">
 			<input type="hidden" name="post_type" value="download" />
@@ -59,7 +59,7 @@ function edd_payment_history_page() {
 function edd_payment_history_mobile_link() { 
 	?>
 	<p class="edd-mobile-link">
-		<a href="https://easydigitaldownloads.com/extension/ios-sales-earnings-tracker/" target="_blank">
+		<a href="https://easydigitaldownloads.com/extensions/ios-sales-earnings-tracker/" target="_blank">
 			<img src="<?php echo EDD_PLUGIN_URL . 'assets/images/icons/iphone.png'; ?>"/>
 			<?php _e( 'Get the EDD Sales / Earnings tracker for iOS', 'edd' ); ?>
 		</a>

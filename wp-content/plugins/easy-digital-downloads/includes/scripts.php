@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Functions
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.0
  */
@@ -18,16 +18,13 @@ if ( ! defined( 'ABSPATH' ) ) exit;
  * Enqueues the required scripts.
  *
  * @since 1.0
- * @global $edd_options
  * @global $post
  * @return void
  */
 function edd_load_scripts() {
-	global $edd_options, $post;
+	global $post;
 
 	$js_dir = EDD_PLUGIN_URL . 'assets/js/';
-
-	wp_enqueue_script( 'jquery' );
 
 	// Use minified libraries if SCRIPT_DEBUG is turned off
 	$suffix = ( defined( 'SCRIPT_DEBUG' ) && SCRIPT_DEBUG ) ? '' : '.min';
@@ -42,11 +39,11 @@ function edd_load_scripts() {
 			wp_enqueue_script( 'creditCardValidator', $js_dir . 'jquery.creditCardValidator' . $suffix . '.js', array( 'jquery' ), EDD_VERSION );
 		}
 		wp_enqueue_script( 'edd-checkout-global', $js_dir . 'edd-checkout-global' . $suffix . '.js', array( 'jquery' ), EDD_VERSION );
-		wp_localize_script( 'edd-checkout-global', 'edd_global_vars', array(
+		wp_localize_script( 'edd-checkout-global', 'edd_global_vars', apply_filters( 'edd_global_checkout_script_vars', array(
 			'ajaxurl'            => edd_get_ajax_url(),
 			'checkout_nonce'     => wp_create_nonce( 'edd_checkout_nonce' ),
 			'currency_sign'      => edd_currency_filter(''),
-			'currency_pos'       => isset( $edd_options['currency_position'] ) ? $edd_options['currency_position'] : 'before',
+			'currency_pos'       => edd_get_option( 'currency_position', 'before' ),
 			'no_gateway'         => __( 'Please select a payment method', 'edd' ),
 			'no_discount'        => __( 'Please enter a discount code', 'edd' ), // Blank discount code message
 			'enter_discount'     => __( 'Enter discount', 'edd' ),
@@ -54,31 +51,30 @@ function edd_load_scripts() {
 			'no_email'           => __( 'Please enter an email address before applying a discount code', 'edd' ),
 			'no_username'        => __( 'Please enter a username before applying a discount code', 'edd' ),
 			'purchase_loading'   => __( 'Please Wait...', 'edd' ),
-			'complete_purchasse' => __( 'Purchase', 'edd' ),
+			'complete_purchase'  => __( 'Purchase', 'edd' ),
 			'taxes_enabled'      => edd_use_taxes() ? '1' : '0',
 			'edd_version'        => EDD_VERSION
-		));
+		) ) );
 	}
 
 	// Load AJAX scripts, if enabled
-	if ( edd_is_ajax_enabled() ) {
+	if ( ! edd_is_ajax_disabled() ) {
 		wp_enqueue_script( 'edd-ajax', $js_dir . 'edd-ajax' . $suffix . '.js', array( 'jquery' ), EDD_VERSION );
-		wp_localize_script( 'edd-ajax', 'edd_scripts', array(
-				'ajaxurl'                 => edd_get_ajax_url(),
-				'ajax_nonce'              => wp_create_nonce( 'edd_ajax_nonce' ),
-				'position_in_cart'        => isset( $position ) ? $position : -1,
-				'already_in_cart_message' => __('You have already added this item to your cart', 'edd'), // Item already in the cart message
-				'empty_cart_message'      => __('Your cart is empty', 'edd'), // Item already in the cart message
-				'loading'                 => __('Loading', 'edd') , // General loading message
-				'select_option'           => __('Please select an option', 'edd') , // Variable pricing error with multi-purchase option enabled
-				'ajax_loader'             => EDD_PLUGIN_URL . 'assets/images/loading.gif', // Ajax loading image
-				'is_checkout'             => edd_is_checkout() ? '1' : '0',
-				'default_gateway'         => edd_get_default_gateway(),
-				'redirect_to_checkout'    => ( edd_straight_to_checkout() || edd_is_checkout() ) ? '1' : '0',
-				'checkout_page'           => edd_get_checkout_uri(),
-				'permalinks'              => get_option( 'permalink_structure' ) ? '1' : '0',
-			)
-		);
+		wp_localize_script( 'edd-ajax', 'edd_scripts', apply_filters( 'edd_ajax_script_vars', array(
+			'ajaxurl'                 => edd_get_ajax_url(),
+			'position_in_cart'        => isset( $position ) ? $position : -1,
+			'already_in_cart_message' => __('You have already added this item to your cart', 'edd'), // Item already in the cart message
+			'empty_cart_message'      => __('Your cart is empty', 'edd'), // Item already in the cart message
+			'loading'                 => __('Loading', 'edd') , // General loading message
+			'select_option'           => __('Please select an option', 'edd') , // Variable pricing error with multi-purchase option enabled
+			'ajax_loader'             => set_url_scheme( EDD_PLUGIN_URL . 'assets/images/loading.gif', 'relative' ), // Ajax loading image
+			'is_checkout'             => edd_is_checkout() ? '1' : '0',
+			'default_gateway'         => edd_get_default_gateway(),
+			'redirect_to_checkout'    => ( edd_straight_to_checkout() || edd_is_checkout() ) ? '1' : '0',
+			'checkout_page'           => edd_get_checkout_uri(),
+			'permalinks'              => get_option( 'permalink_structure' ) ? '1' : '0',
+			'quantities_enabled'      => edd_item_quantities_enabled()
+		) ) );
 	}
 }
 add_action( 'wp_enqueue_scripts', 'edd_load_scripts' );
@@ -89,13 +85,10 @@ add_action( 'wp_enqueue_scripts', 'edd_load_scripts' );
  * Checks the styles option and hooks the required filter.
  *
  * @since 1.0
- * @global $edd_options
  * @return void
  */
 function edd_register_styles() {
-	global $edd_options;
-
-	if ( isset( $edd_options['disable_styles'] ) ) {
+	if ( edd_get_option( 'disable_styles', false ) ) {
 		return;
 	}
 
@@ -115,20 +108,27 @@ function edd_register_styles() {
 	// Also look for the min version first, followed by non minified version, even if SCRIPT_DEBUG is not enabled.
 	// This allows users to copy just edd.css to their theme
 	if ( file_exists( $child_theme_style_sheet ) || ( ! empty( $suffix ) && ( $nonmin = file_exists( $child_theme_style_sheet_2 ) ) ) ) {
-		if( ! empty( $nonmin ) )
+		if( ! empty( $nonmin ) ) {
 			$url = trailingslashit( get_stylesheet_directory_uri() ) . $templates_dir . 'edd.css';
-		else
+		} else {
 			$url = trailingslashit( get_stylesheet_directory_uri() ) . $templates_dir . $file;
+		}
 	} elseif ( file_exists( $parent_theme_style_sheet ) || ( ! empty( $suffix ) && ( $nonmin = file_exists( $parent_theme_style_sheet_2 ) ) ) ) {
-		if( ! empty( $nonmin ) )
+		if( ! empty( $nonmin ) ) {
 			$url = trailingslashit( get_template_directory_uri() ) . $templates_dir . 'edd.css';
-		else
+		} else {
 			$url = trailingslashit( get_template_directory_uri() ) . $templates_dir . $file;
+		}
 	} elseif ( file_exists( $edd_plugin_style_sheet ) || file_exists( $edd_plugin_style_sheet ) ) {
 		$url = trailingslashit( edd_get_templates_url() ) . $file;
 	}
 
 	wp_enqueue_style( 'edd-styles', $url, array(), EDD_VERSION );
+
+	if( edd_is_checkout() && is_ssl() ) {
+		// Dashicons are used to show the padlock icon on the credit card form
+		wp_enqueue_style( 'dashicons' );
+	}
 }
 add_action( 'wp_enqueue_scripts', 'edd_register_styles' );
 
@@ -143,7 +143,12 @@ add_action( 'wp_enqueue_scripts', 'edd_register_styles' );
  * @return void
  */
 function edd_load_admin_scripts( $hook ) {
-	global $wp_version;
+
+	if ( ! apply_filters( 'edd_load_admin_scripts', edd_is_admin_page(), $hook ) ) {
+		return;
+	}
+
+	global $wp_version, $post;
 
 	$js_dir  = EDD_PLUGIN_URL . 'assets/js/';
 	$css_dir = EDD_PLUGIN_URL . 'assets/css/';
@@ -164,17 +169,24 @@ function edd_load_admin_scripts( $hook ) {
 		'delete_payment'          => __( 'Are you sure you wish to delete this payment?', 'edd' ),
 		'delete_payment_note'     => __( 'Are you sure you wish to delete this note?', 'edd' ),
 		'delete_tax_rate'         => __( 'Are you sure you wish to delete this tax rate?', 'edd' ),
+		'revoke_api_key'          => __( 'Are you sure you wish to revoke this API key?', 'edd' ),
+		'regenerate_api_key'      => __( 'Are you sure you wish to regenerate this API key?', 'edd' ),
 		'resend_receipt'          => __( 'Are you sure you wish to resend the purchase receipt?', 'edd' ),
+		'copy_download_link_text' => __( 'Copy these links to your clipboard and give them to your customer', 'edd' ),
 		'delete_payment_download' => sprintf( __( 'Are you sure you wish to delete this %s?', 'edd' ), edd_get_label_singular() ),
 		'one_price_min'           => __( 'You must have at least one price', 'edd' ),
-		'one_file_min'            => __( 'You must have at least one file', 'edd' ),
 		'one_field_min'           => __( 'You must have at least one field', 'edd' ),
 		'one_option'              => sprintf( __( 'Choose a %s', 'edd' ), edd_get_label_singular() ),
 		'one_or_more_option'      => sprintf( __( 'Choose one or more %s', 'edd' ), edd_get_label_plural() ),
+		'numeric_item_price'      => __( 'Item price must be numeric', 'edd' ),
+		'numeric_quantity'        => __( 'Quantity must be numeric', 'edd' ),
 		'currency_sign'           => edd_currency_filter(''),
-		'currency_pos'            => isset( $edd_options['currency_position'] ) ? $edd_options['currency_position'] : 'before',
+		'currency_pos'            => edd_get_option( 'currency_position', 'before' ),
+		'currency_decimals'       => edd_currency_decimal_filter(),
 		'new_media_ui'            => apply_filters( 'edd_use_35_media_ui', 1 ),
 		'remove_text'             => __( 'Remove', 'edd' ),
+		'type_to_search'          => sprintf( __( 'Type to search %s', 'edd' ), edd_get_label_plural() ),
+		'quantities_enabled'      => edd_item_quantities_enabled()
 	));
 
 	wp_enqueue_style( 'wp-color-picker' );
@@ -187,6 +199,7 @@ function edd_load_admin_scripts( $hook ) {
 	}
 	wp_enqueue_script( 'jquery-flot', $js_dir . 'jquery.flot' . $suffix . '.js' );
 	wp_enqueue_script( 'jquery-ui-datepicker' );
+	wp_enqueue_script( 'jquery-ui-dialog' );
 	$ui_style = ( 'classic' == get_user_option( 'admin_color' ) ) ? 'classic' : 'fresh';
 	wp_enqueue_style( 'jquery-ui-css', $css_dir . 'jquery-ui-' . $ui_style . $suffix . '.css' );
 	wp_enqueue_script( 'media-upload' );
@@ -218,7 +231,8 @@ function edd_admin_downloads_icon() {
 	?>
     <style type="text/css" media="screen">
         <?php if( version_compare( $wp_version, '3.8-RC', '>=' ) || version_compare( $wp_version, '3.8', '>=' ) ) { ?>
-            #adminmenu #menu-posts-download .wp-menu-image:before {
+            #adminmenu #menu-posts-download .wp-menu-image:before,
+            #dashboard_right_now .download-count:before {
                 content: '<?php echo $menu_icon; ?>';
             }
         <?php } else { ?>
@@ -268,15 +282,3 @@ function edd_admin_downloads_icon() {
 	<?php
 }
 add_action( 'admin_head','edd_admin_downloads_icon' );
-
-/**
- * Adds EDD Version to the <head> tag
- *
- * @since 1.4.2
- * @return void
-*/
-function edd_version_in_header(){
-	// Newline on both sides to avoid being in a blob
-	echo '<meta name="generator" content="Easy Digital Downloads v' . EDD_VERSION . '" />' . "\n";
-}
-add_action( 'wp_head', 'edd_version_in_header' );

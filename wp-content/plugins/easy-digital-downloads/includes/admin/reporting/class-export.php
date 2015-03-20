@@ -6,7 +6,7 @@
  *
  * @package     EDD
  * @subpackage  Admin/Reports
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.4.4
  */
@@ -35,7 +35,7 @@ class EDD_Export {
 	 * @return bool Whether we can export or not
 	 */
 	public function can_export() {
-		return (bool) apply_filters( 'edd_export_capability', current_user_can( 'manage_options' ) );
+		return (bool) apply_filters( 'edd_export_capability', current_user_can( 'export_shop_reports' ) );
 	}
 
 	/**
@@ -96,7 +96,7 @@ class EDD_Export {
 		$cols = $this->get_csv_cols();
 		$i = 1;
 		foreach( $cols as $col_id => $column ) {
-			echo '"' . $column . '"';
+			echo '"' . addslashes( $column ) . '"';
 			echo $i == count( $cols ) ? '' : ',';
 			$i++;
 		}
@@ -147,11 +147,10 @@ class EDD_Export {
 			foreach ( $row as $col_id => $column ) {
 				// Make sure the column is valid
 				if ( array_key_exists( $col_id, $cols ) ) {
-					echo '"' . $column . '"';
-					echo $i == count( $cols ) + 1 ? '' : ',';
+					echo '"' . addslashes( $column ) . '"';
+					echo $i == count( $cols ) ? '' : ',';
+					$i++;
 				}
-
-				$i++;
 			}
 			echo "\r\n";
 		}
@@ -170,7 +169,7 @@ class EDD_Export {
 	 */
 	public function export() {
 		if ( ! $this->can_export() )
-			wp_die( __( 'You do not have permission to export data.', 'edd' ), __( 'Error', 'edd' ) );
+			wp_die( __( 'You do not have permission to export data.', 'edd' ), __( 'Error', 'edd' ), array( 'response' => 403 ) );
 
 		// Set headers
 		$this->headers();

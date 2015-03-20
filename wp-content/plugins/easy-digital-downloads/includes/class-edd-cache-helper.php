@@ -1,13 +1,14 @@
 <?php
 
-if ( ! defined( 'ABSPATH' ) ) exit; // Exit if accessed directly
+// Exit if accessed directly
+if ( ! defined( 'ABSPATH' ) ) exit;
 
 /**
  * Cache helper
  *
  * @package     EDD
  * @subpackage  Classes/Cache Helper
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.7
 */
@@ -18,7 +19,7 @@ class EDD_Cache_Helper {
 	 */
 	public function __construct() {
 
-		add_action( 'init', array( $this, 'init' ) );
+		add_action( 'init', array( $this, 'init' ), 0 );
 		add_action( 'admin_notices', array( $this, 'notices' ) );
 	}
 
@@ -32,20 +33,21 @@ class EDD_Cache_Helper {
 
 		if ( false === ( $page_uris = get_transient( 'edd_cache_excluded_uris' ) ) ) {
 
-			global $edd_options;
-
-			if( empty( $edd_options['purchase_page'] ) | empty( $edd_options['success_page'] ) )
+			$purchase_page = edd_get_option( 'purchase_page', '' );
+			$success_page  = edd_get_option( 'success_page', '' );
+			if ( empty( $purchase_page ) || empty( $success_page ) ) {
 				return;
+			}
 
 			$page_uris   = array();
 
 			// Exclude querystring when using page ID
-			$page_uris[] = 'p=' . $edd_options['purchase_page'];
-			$page_uris[] = 'p=' . $edd_options['success_page'];
+			$page_uris[] = 'p=' . $purchase_page;
+			$page_uris[] = 'p=' . $success_page;
 
 	    	// Exclude permalinks
-			$checkout_page  = get_post( $edd_options['purchase_page'] );
-			$success_page   = get_post( $edd_options['success_page'] );
+			$checkout_page  = get_post( $purchase_page );
+			$success_page   = get_post( $success_page );
 
 	    	if ( ! is_null( $checkout_page ) )
 	    		$page_uris[] = '/' . $checkout_page->post_name;
@@ -62,6 +64,22 @@ class EDD_Cache_Helper {
 					break;
 				}
 			}
+		}
+
+		if( function_exists( 'wp_suspend_cache_addition' ) ) {
+
+			add_action('edd_pre_update_discount',         array( $this, 'w3tc_suspend_cache_addition_pre' ) );
+			add_action('edd_pre_insert_discount',         array( $this, 'w3tc_suspend_cache_addition_pre' ) );
+			add_action('edd_pre_delete_discount',         array( $this, 'w3tc_suspend_cache_addition_pre' ) );
+			add_action('edd_pre_update_discount_status',  array( $this, 'w3tc_suspend_cache_addition_pre' ) );
+			add_action('edd_pre_remove_cart_discount',    array( $this, 'w3tc_suspend_cache_addition_pre' ) );
+
+			add_action('edd_post_update_discount',        array( $this, 'w3tc_suspend_cache_addition_post' ) );
+			add_action('edd_post_insert_discount',        array( $this, 'w3tc_suspend_cache_addition_post' ) );
+			add_action('edd_post_delete_discount',        array( $this, 'w3tc_suspend_cache_addition_post' ) );
+			add_action('edd_post_update_discount_status', array( $this, 'w3tc_suspend_cache_addition_post' ) );
+			add_action('edd_post_remove_cart_discount',   array( $this, 'w3tc_suspend_cache_addition_post' ) );
+
 		}
 	}
 
@@ -102,6 +120,26 @@ class EDD_Cache_Helper {
 			}
 		}
 
+	}
+
+	/**
+	 * Prevents W3TC from adding to the cache prior to modifying data
+	 *
+	 * @access public
+	 * @return void
+	 */
+	function w3tc_suspend_cache_addition_pre() {
+		wp_suspend_cache_addition(true);
+	}
+
+	/**
+	 * Prevents W3TC from adding to the cache after modifying data
+	 *
+	 * @access public
+	 * @return void
+	 */
+	function w3tc_suspend_cache_addition_post() {
+		wp_suspend_cache_addition();
 	}
 }
 

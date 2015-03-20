@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Admin/Reports
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.5
  */
@@ -80,7 +80,7 @@ class EDD_Download_Reports_Table extends WP_List_Table {
 			case 'average_earnings' :
 				return edd_currency_filter( edd_format_amount( $item[ $column_name ] ) );
 			case 'details' :
-				return '<a href="' . admin_url( 'edit.php?post_type=download&page=edd-reports&view=downloads&download-id=' . $item[ 'ID' ] ) . '">' . __( 'View Detailed Report', 'edd' ) . '</a>';
+				return '<a href="' . admin_url( 'edit.php?post_type=download&page=edd-reports&view=downloads&download-id=' . $item['ID'] ) . '">' . __( 'View Detailed Report', 'edd' ) . '</a>';
 			default:
 				return $item[ $column_name ];
 		}
@@ -168,7 +168,7 @@ class EDD_Download_Reports_Table extends WP_List_Table {
 	 * @since 1.5
 	 * @return void
 	 */
-	public function bulk_actions() {
+	public function bulk_actions( $which = '' ) {
 		// These aren't really bulk actions but this outputs the markup in the right place
 		edd_report_views();
 	}
@@ -182,7 +182,6 @@ class EDD_Download_Reports_Table extends WP_List_Table {
 	 * @return void
 	 */
 	public function category_filter() {
-		$current_view = isset( $_GET[ 'view' ] ) ? $_GET[ 'view' ] : 'earnings';
 		if( get_terms( 'download_category' ) ) {
 			echo EDD()->html->category_dropdown( 'category', $this->get_category() );
 		}
@@ -236,6 +235,8 @@ class EDD_Download_Reports_Table extends WP_List_Table {
 				$args['meta_key'] = '_edd_download_earnings';
 				break;
 		endswitch;
+
+		$args = apply_filters( 'edd_download_reports_prepare_items_args', $args, $this );
 
 		$this->products = new WP_Query( $args );
 
@@ -292,8 +293,6 @@ class EDD_Download_Reports_Table extends WP_List_Table {
 		$this->_column_headers = array( $columns, $hidden, $sortable );
 
 		$data = $this->reports_data();
-
-		$current_page = $this->get_pagenum();
 
 		$total_items = $this->get_total_downloads();
 

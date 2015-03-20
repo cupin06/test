@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Admin/Reports
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.5
  */
@@ -101,16 +101,13 @@ class EDD_API_Request_Log_Table extends WP_List_Table {
 	 * @access public
 	 * @since 1.5
 	 *
-	 * @param array $item Contains all the data of the discount code
+	 * @param array $item Contains all the data of the api request
 	 * @param string $column_name The name of the column
 	 *
 	 * @return string Column Name
 	 */
 	public function column_default( $item, $column_name ) {
-		switch( $column_name ){
-			default:
-				return $item[ $column_name ];
-		}
+		return $item[ $column_name ];
 	}
 
 	/**
@@ -138,7 +135,7 @@ class EDD_API_Request_Log_Table extends WP_List_Table {
 			echo '<p><strong>' . __( 'API User:', 'edd' ) . '</strong></p>';
 			echo '<div>' . get_post_meta( $item['ID'], '_edd_log_user', true ) . '</div>';
 			echo '<p><strong>' . __( 'API Key:', 'edd' ) . '</strong></p>';
-			echo '<div>' . get_post_meta( $item['ID'], '_edd_log_api_key', true ) . '</div>';
+			echo '<div>' . get_post_meta( $item['ID'], '_edd_log_key', true ) . '</div>';
 			echo '<p><strong>' . __( 'Request Date:', 'edd' ) . '</strong></p>';
 			echo '<div>' . get_post_field( 'post_date', $item['ID'] ) . '</div>';
 			?>
@@ -151,7 +148,7 @@ class EDD_API_Request_Log_Table extends WP_List_Table {
 	 *
 	 * @access public
 	 * @since 1.5
-	 * @return mixed String if search is present, false otherwise
+	 * @return string|false String if search is present, false otherwise
 	 */
 	public function get_search() {
 		return ! empty( $_GET['s'] ) ? urldecode( trim( $_GET['s'] ) ) : false;
@@ -177,10 +174,29 @@ class EDD_API_Request_Log_Table extends WP_List_Table {
 				$key = '_edd_log_request_ip';
 			} else if ( is_email( $search ) ) {
 				// This is an email search
+				$userdata = get_user_by( 'email', $search );
+				
+				if( $userdata ) { 
+					$search = $userdata->ID;
+				}
+
 				$key = '_edd_log_user';
-			} else {
+			} elseif( strlen( $search ) == 32 ) {
 				// Look for an API key
-				$key = '_edd_log_api_key';
+				$key = '_edd_log_key';
+			} elseif( stristr( $search, 'token:' ) ) {
+				// Look for an API token
+				$search = str_ireplace( 'token:', '', $search );
+				$key = '_edd_log_token';
+			} else {
+				// This is (probably) a user ID search
+				$userdata = get_userdata( $search );
+
+				if( $userdata ) {
+					$search = $userdata->ID;
+				}
+
+				$key = '_edd_log_user';
 			}
 
 			// Setup the meta query
@@ -212,7 +228,7 @@ class EDD_API_Request_Log_Table extends WP_List_Table {
 	 * @since 1.5
 	 * @return void
 	 */
-	function bulk_actions() {
+	function bulk_actions( $which='' ) {
 		// These aren't really bulk actions but this outputs the markup in the right place
 		edd_log_views();
 	}
@@ -231,7 +247,7 @@ class EDD_API_Request_Log_Table extends WP_List_Table {
 		$logs_data = array();
 		$paged     = $this->get_paged();
 		$log_query = array(
-			'log_type'    => 'api_requests',
+			'log_type'    => 'api_request',
 			'paged'       => $paged,
 			'meta_query'  => $this->get_meta_query()
 		);
@@ -272,7 +288,6 @@ class EDD_API_Request_Log_Table extends WP_List_Table {
 		$hidden                = array(); // No hidden columns
 		$sortable              = $this->get_sortable_columns();
 		$this->_column_headers = array( $columns, $hidden, $sortable );
-		$current_page          = $this->get_pagenum();
 		$this->items           = $this->get_logs();
 		$total_items           = $edd_logs->get_log_count( 0, 'api_requests' );
 

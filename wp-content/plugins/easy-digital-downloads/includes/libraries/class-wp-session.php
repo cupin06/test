@@ -10,6 +10,9 @@
  * @since   3.7.0
  */
 
+// Exit if accessed directly
+if ( ! defined( 'ABSPATH' ) ) exit;
+
 /**
  * WordPress Session class for managing user session data.
  *
@@ -121,7 +124,7 @@ final class WP_Session extends Recursive_ArrayAccess implements Iterator, Counta
 	 * Set the session cookie
 	 */
 	protected function set_cookie() {
-		setcookie( WP_SESSION_COOKIE, $this->session_id . '||' . $this->expires . '||' . $this->exp_variant , $this->expires, COOKIEPATH, COOKIE_DOMAIN );
+		@setcookie( WP_SESSION_COOKIE, $this->session_id . '||' . $this->expires . '||' . $this->exp_variant , $this->expires, COOKIEPATH, COOKIE_DOMAIN );
 	}
 
 	/**

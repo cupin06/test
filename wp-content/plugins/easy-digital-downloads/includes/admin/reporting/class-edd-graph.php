@@ -6,7 +6,7 @@
  *
  * @package     EDD
  * @subpackage  Admin/Reports
- * @copyright   Copyright (c) 2012, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.9
  */
@@ -160,7 +160,6 @@ class EDD_Graph {
 		$this->load_scripts();
 
 		ob_start();
-
 ?>
 		<script type="text/javascript">
 			jQuery( document ).ready( function($) {
@@ -184,7 +183,7 @@ class EDD_Graph {
 							lines: {
 								show: <?php echo $this->options['lines'] ? 'true' : 'false'; ?>
 							},
-							<?php if( $this->options[ 'multiple_y_axes' ] ) : ?>
+							<?php if( $this->options['multiple_y_axes'] ) : ?>
 							yaxis: <?php echo $yaxis_count; ?>
 							<?php endif; ?>
 						},
@@ -195,10 +194,10 @@ class EDD_Graph {
 						grid: {
 							show: true,
 							aboveData: false,
-							color: "<?php echo $this->options[ 'color' ]; ?>",
-							backgroundColor: "<?php echo $this->options[ 'bgcolor' ]; ?>",
-							borderColor: "<?php echo $this->options[ 'bordercolor' ]; ?>",
-							borderWidth: <?php echo absint( $this->options[ 'borderwidth' ] ); ?>,
+							color: "<?php echo $this->options['color']; ?>",
+							backgroundColor: "<?php echo $this->options['bgcolor']; ?>",
+							borderColor: "<?php echo $this->options['bordercolor']; ?>",
+							borderWidth: <?php echo absint( $this->options['borderwidth'] ); ?>,
 							clickable: false,
 							hoverable: true
 						},
@@ -265,7 +264,7 @@ class EDD_Graph {
 			});
 
 		</script>
-		<div id="edd-graph-<?php echo $this->id; ?>" style="height: 300px;"></div>
+		<div id="edd-graph-<?php echo $this->id; ?>" class="edd-graph" style="height: 300px;"></div>
 <?php
 		return ob_get_clean();
 	}

@@ -6,7 +6,7 @@
  *
  * @package     EDD
  * @subpackage  Functions
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.0.8.6
  */
@@ -29,8 +29,13 @@ if ( ! defined( 'ABSPATH' ) ) exit;
  * @return bool|object List of all user purchases
  */
 function edd_get_users_purchases( $user = 0, $number = 20, $pagination = false, $status = 'complete' ) {
+
 	if ( empty( $user ) ) {
 		$user = get_current_user_id();
+	}
+
+	if ( 0 === $user ) {
+		return false;
 	}
 
 	$status = $status === 'complete' ? 'publish' : $status;
@@ -44,24 +49,119 @@ function edd_get_users_purchases( $user = 0, $number = 20, $pagination = false, 
 			$paged = 1;
 	}
 
-	$args = apply_filters( 'edd_get_users_purchases_args', array(
-		'user'   => $user,
-		'number' => $number,
-		'status' => $status
-	) );
+	$args = array(
+		'user'    => $user,
+		'number'  => $number,
+		'status'  => $status,
+		'orderby' => 'date'
+	);
 
-	if ( $pagination )
+	if ( $pagination ) {
+
 		$args['page'] = $paged;
-	else
+
+	} else {
+
 		$args['nopaging'] = true;
 
-	$purchases = edd_get_payments( $args );
+	}
+
+	$by_user_id = is_numeric( $user ) ? true : false;
+	$customer   = new EDD_Customer( $user, $by_user_id );
+
+	if( ! empty( $customer->payment_ids ) ) {
+
+		unset( $args['user'] );
+		$args['post__in'] = array_map( 'absint', explode( ',', $customer->payment_ids ) );
+
+	}
+
+	$purchases = edd_get_payments( apply_filters( 'edd_get_users_purchases_args', $args ) );
 
 	// No purchases
 	if ( ! $purchases )
 		return false;
 
 	return $purchases;
+}
+
+/**
+ * Get Users Purchased Products
+ *
+ * Returns a list of unique products purchased by a specific user
+ *
+ * @since  2.0
+ *
+ * @param int    $user User ID or email address
+ * @param string $status
+ *
+ * @return bool|object List of unique products purchased by user
+ */
+function edd_get_users_purchased_products( $user = 0, $status = 'complete' ) {
+	if ( empty( $user ) ) {
+		$user = get_current_user_id();
+	}
+
+	if ( empty( $user ) ) {
+		return false;
+	}
+
+	$by_user_id = is_numeric( $user ) ? true : false;
+
+	$customer = new EDD_Customer( $user, $by_user_id );
+
+	if ( empty( $customer->payment_ids ) ) {
+		return false;
+	}
+
+	// Get all the items purchased
+	$payment_ids    = array_reverse( explode( ',', $customer->payment_ids ) );
+	$limit_payments = apply_filters( 'edd_users_purchased_products_payments', 50 );
+	if ( ! empty( $limit_payments ) ) {
+		$payment_ids = array_slice( $payment_ids, 0, $limit_payments );
+	}
+	$purchase_data  = array();
+
+	foreach ( $payment_ids as $payment_id ) {
+		$purchase_data[] = edd_get_payment_meta_downloads( $payment_id );
+	}
+
+	if ( empty( $purchase_data ) ) {
+		return false;
+	}
+
+	// Grab only the post ids of the products purchased on this order
+	$purchase_product_ids = array();
+	foreach ( $purchase_data as $purchase_meta ) {
+		$purchase_product_ids[] = @wp_list_pluck( $purchase_meta, 'id' );
+	}
+
+	if ( empty( $purchase_product_ids ) ) {
+		return false;
+	}
+
+	// Merge all orders into a single array of all items purchased
+	$purchased_products = array();
+	foreach ( $purchase_product_ids as $product ) {
+		$purchased_products = array_merge( $product, $purchased_products );
+	}
+
+	// Only include each product purchased once
+	$product_ids = array_unique( $purchased_products );
+
+	// Make sure we still have some products and a first item
+	if ( empty ( $product_ids ) || ! isset( $product_ids[0] ) )
+		return false;
+
+	$post_type 	 = get_post_type( $product_ids[0] );
+
+	$args = apply_filters( 'edd_get_users_purchased_products_args', array(
+		'include'			=> $product_ids,
+		'post_type' 		=> $post_type,
+		'posts_per_page'  	=> -1
+	) );
+
+	return apply_filters( 'edd_users_purchased_products_list', get_posts( $args ) );
 }
 
 /**
@@ -77,6 +177,10 @@ function edd_get_users_purchases( $user = 0, $number = 20, $pagination = false, 
  * @return      boolean - true if has purchased, false otherwise
  */
 function edd_has_user_purchased( $user_id, $downloads, $variable_price_id = null ) {
+
+	if( empty( $user_id ) ) {
+		return false;
+	}
 
 	$users_purchases = edd_get_users_purchases( $user_id );
 
@@ -148,47 +252,23 @@ function edd_has_purchases( $user_id = null ) {
  */
 function edd_get_purchase_stats_by_user( $user = '' ) {
 
-	global $wpdb;
+	if ( is_email( $user ) ) {
 
-	$stats = array(
-		'purchases'   => 0,
-		'total_spent' => 0
-	);
-
-	if( is_email( $user ) )
 		$field = 'email';
-	elseif( is_numeric( $user ) )
-		$field = 'id';
-	else
-		return $stats;
 
-	$stats = wp_cache_get( $user, 'customers' );
+	} elseif ( is_numeric( $user ) ) {
 
-	if( false == $stats ) {
-
-		$query = "SELECT {$wpdb->prefix}meta_1.meta_value AS payment_total
-			FROM {$wpdb->prefix}postmeta {$wpdb->prefix}meta_1
-			LEFT JOIN {$wpdb->prefix}postmeta {$wpdb->prefix}meta_2
-				ON {$wpdb->prefix}meta_1.post_id = {$wpdb->prefix}meta_2.post_id
-				AND {$wpdb->prefix}meta_1.meta_key = '_edd_payment_total'
-			INNER JOIN {$wpdb->prefix}posts
-				ON {$wpdb->prefix}posts.ID = {$wpdb->prefix}meta_2.post_id
-				AND {$wpdb->prefix}posts.post_status = 'publish'
-			WHERE {$wpdb->prefix}meta_2.meta_key = '_edd_payment_user_{$field}'
-			AND {$wpdb->prefix}meta_2.meta_value = '%s'";
-
-		$purchases = $wpdb->get_col( $wpdb->prepare( $query, $user ) );
-
-		$purchases = array_filter( $purchases );
-
-		if( $purchases ) {
-			$stats['purchases']   = count( $purchases );
-			$stats['total_spent'] = round( array_sum( $purchases ), 2 );
-		}
-
-		wp_cache_set( $user, $stats, 'customers' );
+		$field = 'user_id';
 
 	}
+
+	$customer = EDD()->customers->get_customer_by( $field, $user );
+	$customer = new EDD_Customer( $customer->id );
+
+	$stats = array();
+	$stats['purchases']   = absint( $customer->purchase_count );
+	$stats['total_spent'] = edd_sanitize_amount( $customer->purchase_value );
+
 
 	return (array) apply_filters( 'edd_purchase_stats_by_user', $stats, $user );
 }
@@ -210,7 +290,7 @@ function edd_count_purchases_of_customer( $user = null ) {
 
 	$stats = edd_get_purchase_stats_by_user( $user );
 
-	return $stats['purchases'];
+	return isset( $stats['purchases'] ) ? $stats['purchases'] : 0;
 }
 
 /**
@@ -264,7 +344,7 @@ function edd_count_file_downloads_of_user( $user ) {
  *
  * @access      public
  * @since       1.3.4
- * @param       $username string - the username to validate
+ * @param       string $username The username to validate
  * @return      bool
  */
 function edd_validate_username( $username ) {
@@ -290,7 +370,7 @@ function edd_add_past_purchases_to_new_user( $user_id ) {
 	$email    = get_the_author_meta( 'user_email', $user_id );
 
 	$payments = edd_get_payments( array( 's' => $email ) );
-	
+
 	if( $payments ) {
 		foreach( $payments as $payment ) {
 			if( intval( edd_get_payment_user_id( $payment->ID ) ) > 0 )
@@ -299,11 +379,11 @@ function edd_add_past_purchases_to_new_user( $user_id ) {
 			$meta                    = edd_get_payment_meta( $payment->ID );
 			$meta['user_info']       = maybe_unserialize( $meta['user_info'] );
 			$meta['user_info']['id'] = $user_id;
-			$meta['user_info']       = serialize( $meta['user_info'] );
+			$meta['user_info']       = $meta['user_info'];
 
 			// Store the updated user ID in the payment meta
-			update_post_meta( $payment->ID, '_edd_payment_meta', $meta );
-			update_post_meta( $payment->ID, '_edd_payment_user_id', $user_id );
+			edd_update_payment_meta( $payment->ID, '_edd_payment_meta', $meta );
+			edd_update_payment_meta( $payment->ID, '_edd_payment_user_id', $user_id );
 		}
 	}
 
@@ -316,26 +396,10 @@ add_action( 'user_register', 'edd_add_past_purchases_to_new_user' );
  *
  * @access 		public
  * @since 		1.7
- * @global object $wpdb Used to query the database using the WordPress
- *   Database API
  * @return 		int - The total number of customers.
  */
 function edd_count_total_customers() {
-	global $wpdb;
-
-	$count = wp_cache_get( 'customer_count', 'customers' );
-
-	if( false == $count ) {
-	
-		$count = $wpdb->get_col( "SELECT COUNT(DISTINCT meta_value) FROM $wpdb->postmeta WHERE meta_key = '_edd_payment_user_email'" );
-
-		$count = $count[0];
-
-		wp_cache_set( 'customer_count', $count, 'customers', 3600 );
-
-	}
-
-	return $count;
+	return EDD()->customers->count();
 }
 
 
@@ -382,6 +446,11 @@ function edd_get_customer_address( $user_id = 0 ) {
  * @return 		void
  */
 function edd_new_user_notification( $user_id = 0, $user_data = array() ) {
+
+	if( empty( $user_id ) || empty( $user_data ) ) {
+		return;
+	}
+
 	wp_new_user_notification( $user_id, __( '[Password entered at checkout]', 'edd' ) );
 }
 add_action( 'edd_insert_user', 'edd_new_user_notification', 10, 2 );

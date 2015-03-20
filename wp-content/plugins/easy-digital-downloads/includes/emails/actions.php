@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Emails
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.0.8.2
  */
@@ -37,12 +37,22 @@ add_action( 'edd_complete_purchase', 'edd_trigger_purchase_receipt', 999, 1 );
  * @return void
  */
 function edd_resend_purchase_receipt( $data ) {
-	$purchase_id = $data['purchase_id'];
+
+	$purchase_id = absint( $data['purchase_id'] );
+
+	if( empty( $purchase_id ) ) {
+		return;
+	}
+
+	if( ! current_user_can( 'edit_shop_payments' ) ) {
+		wp_die( __( 'You do not have permission to edit this payment record', 'edd' ), __( 'Error', 'edd' ), array( 'response' => 403 ) );
+	}
+
 	edd_email_purchase_receipt( $purchase_id, false );
 
 	// Grab all downloads of the purchase and update their file download limits, if needed
 	// This allows admins to resend purchase receipts to grant additional file downloads
-	$downloads = edd_get_payment_meta_downloads( $purchase_id );
+	$downloads = edd_get_payment_meta_cart_details( $purchase_id, true );
 
 	if ( is_array( $downloads ) ) {
 		foreach ( $downloads as $download ) {

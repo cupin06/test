@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Cart
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.0
  */
@@ -31,13 +31,11 @@ function edd_checkout_cart() {
 	}
 
 	do_action( 'edd_before_checkout_cart' );
-	echo '<!--dynamic-cached-content-->';
 	echo '<form id="edd_checkout_cart_form" method="post">';
 		echo '<div id="edd_checkout_cart_wrap">';
 			edd_get_template_part( 'checkout_cart' );
 		echo '</div>';
 	echo '</form>';
-	echo '<!--/dynamic-cached-content-->';
 	do_action( 'edd_after_checkout_cart' );
 }
 
@@ -50,36 +48,11 @@ function edd_checkout_cart() {
  * @return string Fully formatted cart
  */
 function edd_shopping_cart( $echo = false ) {
-	global $edd_options;
-
 	ob_start();
-	do_action('edd_before_cart');
-	$display = 'style="display:none;"';
-  	$cart_quantity = edd_get_cart_quantity();
 
-  	if ( $cart_quantity > 0 ){
-  	  $display = "";
-  	}
+	do_action( 'edd_before_cart' );
 
-  	echo "<p class='edd-cart-number-of-items' {$display}>" . __( 'Number of items in cart', 'edd' ) . ': <span class="edd-cart-quantity">' . $cart_quantity . '</span></p>';
- 	?>
-
-	<ul class="edd-cart">
-	<!--dynamic-cached-content-->
-	<?php
-		$cart_items = edd_get_cart_contents();
-		if($cart_items) :
-			foreach( $cart_items as $key => $item ) :
-				echo edd_get_cart_item_template( $key, $item, false );
-			endforeach;
-			edd_get_template_part( 'widget', 'cart-checkout' );
-		else :
-			edd_get_template_part( 'widget', 'cart-empty' );
-		endif;
-	?>
-	<!--/dynamic-cached-content-->
-	</ul>
-	<?php
+	edd_get_template_part( 'widget', 'cart' );
 
 	do_action( 'edd_after_cart' );
 
@@ -103,9 +76,10 @@ function edd_get_cart_item_template( $cart_key, $item, $ajax = false ) {
 
 	$id = is_array( $item ) ? $item['id'] : $item;
 
-	$remove_url = edd_remove_item_url( $cart_key, $post, $ajax );
+	$remove_url = edd_remove_item_url( $cart_key );
 	$title      = get_the_title( $id );
 	$options    = !empty( $item['options'] ) ? $item['options'] : array();
+	$quantity   = edd_get_cart_item_quantity( $id, $options );
 	$price      = edd_get_cart_item_price( $id, $options );
 
 	if ( ! empty( $options ) ) {
@@ -122,6 +96,7 @@ function edd_get_cart_item_template( $cart_key, $item, $ajax = false ) {
 	$item = str_replace( '{item_amount}', edd_currency_filter( edd_format_amount( $price ) ), $item );
 	$item = str_replace( '{cart_item_id}', absint( $cart_key ), $item );
 	$item = str_replace( '{item_id}', absint( $id ), $item );
+	$item = str_replace( '{item_quantity}', absint( $quantity ), $item );
 	$item = str_replace( '{remove_url}', $remove_url, $item );
   	$subtotal = '';
   	if ( $ajax ){
@@ -171,16 +146,13 @@ function edd_checkout_cart_columns() {
  * Display the "Save Cart" button on the checkout
  *
  * @since 1.8
- * @global $edd_options Array of all the EDD Options
  * @return void
  */
 function edd_save_cart_button() {
-	global $edd_options;
-
 	if ( edd_is_cart_saving_disabled() )
 		return;
 
-	$color = isset( $edd_options[ 'checkout_color' ] ) ? $edd_options[ 'checkout_color' ] : 'blue';
+	$color = edd_get_option( 'checkout_color', 'blue' );
 	$color = ( $color == 'inherit' ) ? '' : $color;
 
 	if ( edd_is_cart_saved() ) : ?>
@@ -211,19 +183,16 @@ add_action( 'edd_cart_empty', 'edd_empty_cart_restore_cart_link' );
  * Display the "Save Cart" button on the checkout
  *
  * @since 1.8
- * @global $edd_options Array of all the EDD Options
  * @return void
  */
 function edd_update_cart_button() {
-	global $edd_options;
-
 	if ( ! edd_item_quantities_enabled() )
 		return;
 
-	$color = isset( $edd_options[ 'checkout_color' ] ) ? $edd_options[ 'checkout_color' ] : 'blue';
+	$color = edd_get_option( 'checkout_color', 'blue' );
 	$color = ( $color == 'inherit' ) ? '' : $color;
 ?>
-	<input type="submit" name="edd_update_cart_submit" class="edd-submit button<?php echo ' ' . $color; ?>" value="<?php _e( 'Update Cart', 'edd' ); ?>"/>
+	<input type="submit" name="edd_update_cart_submit" class="edd-submit edd-no-js button<?php echo ' ' . $color; ?>" value="<?php _e( 'Update Cart', 'edd' ); ?>"/>
 	<input type="hidden" name="edd_action" value="update_cart"/>
 <?php
 
@@ -254,3 +223,25 @@ function edd_display_cart_messages() {
 	}
 }
 add_action( 'edd_before_checkout_cart', 'edd_display_cart_messages' );
+
+/**
+ * Show Added To Cart Messages
+ *
+ * @since 1.0
+ * @param int $download_id Download (Post) ID
+ * @return void
+ */
+function edd_show_added_to_cart_messages( $download_id ) {
+	if ( isset( $_POST['edd_action'] ) && $_POST['edd_action'] == 'add_to_cart' ) {
+		if ( $download_id != absint( $_POST['download_id'] ) )
+			$download_id = absint( $_POST['download_id'] );
+
+		$alert = '<div class="edd_added_to_cart_alert">'
+		. sprintf( __('You have successfully added %s to your shopping cart.', 'edd'), get_the_title( $download_id ) )
+		. ' <a href="' . edd_get_checkout_uri() . '" class="edd_alert_checkout_link">' . __('Checkout.', 'edd') . '</a>'
+		. '</div>';
+
+		echo apply_filters( 'edd_show_added_to_cart_messages', $alert );
+	}
+}
+add_action('edd_after_download_content', 'edd_show_added_to_cart_messages');

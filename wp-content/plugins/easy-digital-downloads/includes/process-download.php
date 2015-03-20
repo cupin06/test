@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Functions
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.0
   */
@@ -28,69 +28,123 @@ function edd_process_download() {
 	}
 
 	$args = apply_filters( 'edd_process_download_args', array(
-		'download' => ( isset( $_GET['download_id'] ) )  ? (int) $_GET['download_id']                    : '',
+		'download' => ( isset( $_GET['download_id'] ) )  ? (int) $_GET['download_id']                       : '',
 		'email'    => ( isset( $_GET['email'] ) )        ? rawurldecode( $_GET['email'] )                   : '',
-		'expire'   => ( isset( $_GET['expire'] ) )       ? base64_decode( rawurldecode( $_GET['expire'] ) ) : '',
+		'expire'   => ( isset( $_GET['expire'] ) )       ? rawurldecode( $_GET['expire'] )                  : '',
 		'file_key' => ( isset( $_GET['file'] ) )         ? (int) $_GET['file']                              : '',
 		'price_id' => ( isset( $_GET['price_id'] ) )     ? (int) $_GET['price_id']                          : false,
-		'key'      => ( isset( $_GET['download_key'] ) ) ? $_GET['download_key']                            : ''
+		'key'      => ( isset( $_GET['download_key'] ) ) ? $_GET['download_key']                            : '',
+		'eddfile'  => ( isset( $_GET['eddfile'] ) )      ? $_GET['eddfile']                                 : '',
+		'ttl'      => ( isset( $_GET['ttl'] ) )          ? $_GET['ttl']                                     : '',
+		'token'    => ( isset( $_GET['token'] ) )        ? $_GET['token']                                   : ''
 	) );
 
-	if( $args['download'] === '' || $args['email'] === '' || $args['file_key'] === '' )
-		return false;
+	if ( ! empty( $args['eddfile'] ) && ! empty( $args['ttl'] ) && ! empty( $args['token'] ) ) {
 
-    extract( $args );
+		// Validate a signed URL that edd_process_signed_download_urlcontains a token
+		$args = edd_process_signed_download_url( $args );
 
-	$payment = edd_verify_download_link( $download, $key, $email, $expire, $file_key );
+		// Backfill some legacy super globals for backwards compatibility
+		$_GET['download_id']  = $args['download'];
+		$_GET['email']        = $args['email'];
+		$_GET['expire']       = $args['expire'];
+		$_GET['download_key'] = $args['key'];
+		$_GET['price_id']     = $args['price_id'];
 
-	// Defaulting this to true for now because the method below doesn't work well
-	$has_access = apply_filters( 'edd_file_download_has_access', true, $payment, $args );
+	} elseif ( ! empty( $args['download'] ) && ! empty( $args['key'] ) && ! empty( $args['email'] ) && ! empty( $args['expire'] ) && isset( $args['file_key'] ) ) {
 
-	//$has_access = ( edd_logged_in_only() && is_user_logged_in() ) || !edd_logged_in_only() ? true : false;
-	if ( $payment && $has_access ) {
-		do_action( 'edd_process_verified_download', $download, $email );
+		// Validate a legacy URL without a token
+		$args = edd_process_legacy_download_url( $args );
+
+	} else {
+
+		return;
+
+	}
+
+	// Determine the download method set in settings
+	$method  = edd_get_file_download_method();
+
+	$args['has_access'] = apply_filters( 'edd_file_download_has_access', $args['has_access'], $args['payment'], $args );
+
+	//$args['has_access'] = ( edd_logged_in_only() && is_user_logged_in() ) || !edd_logged_in_only() ? true : false;
+	if ( $args['payment'] && $args['has_access'] ) {
+		do_action( 'edd_process_verified_download', $args['download'], $args['email'], $args['payment'] );
 
 		// Payment has been verified, setup the download
-		$download_files = edd_get_download_files( $download );
+		$download_files = edd_get_download_files( $args['download'] );
+		$attachment_id  = ! empty( $download_files[ $args['file_key'] ]['attachment_id'] ) ? absint( $download_files[ $args['file_key'] ]['attachment_id'] ) : false;
 
-		$requested_file = apply_filters( 'edd_requested_file', $download_files[ $file_key ]['file'], $download_files, $file_key );
-
-		$user_info = array();
-		$user_info['email'] = $email;
-		if ( is_user_logged_in() ) {
-			global $user_ID;
-			$user_data 			= get_userdata( $user_ID );
-			$user_info['id'] 	= $user_ID;
-			$user_info['name'] 	= $user_data->display_name;
+		/*
+		 * If we have an attachment ID stored, use get_attached_file() to retrieve absolute URL
+		 * If this fails or returns a relative path, we fail back to our own absolute URL detection
+		 */
+		if( $attachment_id && 'attachment' == get_post_type( $attachment_id ) && 'redirect' != $method ) {
+			$attached_file = get_attached_file( $attachment_id, false );
+			if( $attached_file ) {
+				$requested_file = $attached_file;
+			}
 		}
 
-		edd_record_download_in_log( $download, $file_key, $user_info, edd_get_ip(), $payment, $args['price_id'] );
+		// If we didn't find a file from the attachment, grab the given URL
+		if( ! isset( $requested_file ) ) {
+			$requested_file = isset( $download_files[ $args['file_key'] ]['file'] ) ? $download_files[ $args['file_key'] ]['file'] : '';
+		}
+
+		// Allow the file to be altered before any headers are sent
+		$requested_file = apply_filters( 'edd_requested_file', $requested_file, $download_files, $args['file_key'] );
+
+		// Record this file download in the log
+		$user_info = array();
+		$user_info['email'] = $args['email'];
+		if ( is_user_logged_in() ) {
+			$user_data         = get_userdata( get_current_user_id() );
+			$user_info['id']   = get_current_user_id();
+			$user_info['name'] = $user_data->display_name;
+		}
+		edd_record_download_in_log( $args['download'], $args['file_key'], $user_info, edd_get_ip(), $args['payment'], $args['price_id'] );
 
 		$file_extension = edd_get_file_extension( $requested_file );
 		$ctype          = edd_get_file_ctype( $file_extension );
 
-		if ( !edd_is_func_disabled( 'set_time_limit' ) && !ini_get('safe_mode') ) {
-			set_time_limit(0);
+		if ( ! edd_is_func_disabled( 'set_time_limit' ) && ! ini_get( 'safe_mode' ) ) {
+			@set_time_limit(0);
 		}
-		if ( function_exists( 'get_magic_quotes_runtime' ) && get_magic_quotes_runtime() ) {
+		if ( function_exists( 'get_magic_quotes_runtime' ) && get_magic_quotes_runtime() && version_compare( phpversion(), '5.4', '<' ) ) {
 			set_magic_quotes_runtime(0);
 		}
 
 		@session_write_close();
-		if( function_exists( 'apache_setenv' ) ) @apache_setenv('no-gzip', 1);
+		if( function_exists( 'apache_setenv' ) ) {
+			@apache_setenv('no-gzip', 1);
+		}
 		@ini_set( 'zlib.output_compression', 'Off' );
+
+		do_action( 'edd_process_download_headers', $requested_file, $args['download'], $args['email'], $args['payment'] );
 
 		nocache_headers();
 		header("Robots: none");
 		header("Content-Type: " . $ctype . "");
 		header("Content-Description: File Transfer");
-		header("Content-Disposition: attachment; filename=\"" . apply_filters( 'edd_requested_file_name', basename( $requested_file ) ) . "\";");
+		header("Content-Disposition: attachment; filename=\"" . apply_filters( 'edd_requested_file_name', basename( $requested_file ) ) . "\"");
 		header("Content-Transfer-Encoding: binary");
 
-		$method = edd_get_file_download_method();
 		if( 'x_sendfile' == $method && ( ! function_exists( 'apache_get_modules' ) || ! in_array( 'mod_xsendfile', apache_get_modules() ) ) ) {
 			// If X-Sendfile is selected but is not supported, fallback to Direct
 			$method = 'direct';
+		}
+
+		$file_details = parse_url( $requested_file );
+		$schemes      = array( 'http', 'https' ); // Direct URL schemes
+
+		if ( ( ! isset( $file_details['scheme'] ) || ! in_array( $file_details['scheme'], $schemes ) ) && isset( $file_details['path'] ) && file_exists( $requested_file ) ) {
+
+			/**
+			 * Download method is seto to Redirect in settings but an absolute path was provided
+			 * We need to switch to a direct download in order for the file to download properly
+			 */
+			$method = 'direct';
+
 		}
 
 		switch( $method ) :
@@ -104,14 +158,24 @@ function edd_process_download() {
 			case 'direct' :
 			default:
 
-				$direct       = false;
-				$file_details = parse_url( $requested_file );
-				$schemes      = array( 'http', 'https' ); // Direct URL schemes
+				$direct = false;
+
 				if ( ( ! isset( $file_details['scheme'] ) || ! in_array( $file_details['scheme'], $schemes ) ) && isset( $file_details['path'] ) && file_exists( $requested_file ) ) {
 
 					/** This is an absolute path */
 					$direct    = true;
 					$file_path = $requested_file;
+
+				} else if( defined( 'UPLOADS' ) && strpos( $requested_file, UPLOADS ) !== false ) {
+
+					/**
+					 * This is a local file given by URL so we need to figure out the path
+					 * UPLOADS is always relative to ABSPATH
+					 * site_url() is the URL to where WordPress is installed
+					 */
+					$file_path  = str_replace( site_url(), '', $requested_file );
+					$file_path  = realpath( ABSPATH . $file_path );
+					$direct     = true;
 
 				} else if( strpos( $requested_file, WP_CONTENT_URL ) !== false ) {
 
@@ -120,7 +184,17 @@ function edd_process_download() {
 					$file_path  = realpath( $file_path );
 					$direct     = true;
 
+				} else if( strpos( $requested_file, set_url_scheme( WP_CONTENT_URL, 'https' ) ) !== false ) {
+
+					/** This is a local file given by an HTTPS URL so we need to figure out the path */
+					$file_path  = str_replace( set_url_scheme( WP_CONTENT_URL, 'https' ), WP_CONTENT_DIR, $requested_file );
+					$file_path  = realpath( $file_path );
+					$direct     = true;
+
 				}
+
+				// Set the file size header
+				header( "Content-Length: " . filesize( $file_path ) );
 
 				// Now deliver the file based on the kind of software the server is running / has enabled
 				if ( function_exists( 'apache_get_modules' ) && in_array( 'mod_xsendfile', apache_get_modules() ) ) {
@@ -131,13 +205,13 @@ function edd_process_download() {
 
 					header( "X-LIGHTTPD-send-file: $file_path" );
 
-				} elseif ( stristr( getenv( 'SERVER_SOFTWARE' ), 'nginx' ) || stristr( getenv( 'SERVER_SOFTWARE' ), 'cherokee' ) ) {
+				} elseif ( $direct && ( stristr( getenv( 'SERVER_SOFTWARE' ), 'nginx' ) || stristr( getenv( 'SERVER_SOFTWARE' ), 'cherokee' ) ) ) {
 
 					// We need a path relative to the domain
-					$file_path = str_ireplace( $_SERVER[ 'DOCUMENT_ROOT' ], '', $file_path );
+					$file_path = str_ireplace( $_SERVER['DOCUMENT_ROOT'], '', $file_path );
 					header( "X-Accel-Redirect: /$file_path" );
 
-				} else
+				}
 
 				if( $direct ) {
 					edd_deliver_download( $file_path );
@@ -153,13 +227,12 @@ function edd_process_download() {
 		edd_die();
 	} else {
 		$error_message = __( 'You do not have permission to download this file', 'edd' );
-		wp_die( apply_filters( ' edd_deny_download_message', $error_message, __( 'Purchase Verification Failed', 'edd' ) ) );
+		wp_die( apply_filters( 'edd_deny_download_message', $error_message, __( 'Purchase Verification Failed', 'edd' ) ), __( 'Error', 'edd' ), array( 'response' => 403 ) );
 	}
 
 	exit;
 }
 add_action( 'init', 'edd_process_download', 100 );
-
 
 /**
  * Deliver the download file
@@ -171,10 +244,8 @@ add_action( 'init', 'edd_process_download', 100 );
  * @return   void
  */
 function edd_deliver_download( $file = '' ) {
-
-	global $edd_options;
-
-	$symlink = apply_filters( 'edd_symlink_file_downloads', isset( $edd_options['symlink_file_downloads'] ) );
+	$symlink = edd_get_option( 'symlink_file_downloads', false );
+	$symlink = (bool) apply_filters( 'edd_symlink_file_downloads', $symlink );
 
 	/*
 	 * If symlinks are enabled, a link to the file will be created
@@ -210,13 +281,13 @@ function edd_deliver_download( $file = '' ) {
 			// Send the browser to the file
 			header( 'Location: ' . $url );
 		} else {
-			@edd_readfile_chunked( $file );
+			edd_readfile_chunked( $file );
 		}
 
 	} else {
 
 		// Read the file and deliver it in chunks
-		@edd_readfile_chunked( $file );
+		edd_readfile_chunked( $file );
 
 	}
 
@@ -525,6 +596,10 @@ function edd_get_file_ctype( $extension ) {
 		default         : $ctype = "application/force-download";
 	endswitch;
 
+	if( wp_is_mobile() ) {
+		$ctype = 'application/octet-stream';
+	}
+
 	return apply_filters( 'edd_file_ctype', $ctype );
 }
 
@@ -535,31 +610,101 @@ function edd_get_file_ctype( $extension ) {
  * @access   public
  * @param    string  $file      The file
  * @param    boolean $retbytes  Return the bytes of file
- * @return   bool|string - If string, $status || $cnt
+ * @return   bool|string        If string, $status || $cnt
  */
-function edd_readfile_chunked( $file, $retbytes = TRUE ) {
+function edd_readfile_chunked( $file, $retbytes = true ) {
 
-	$chunksize = 1 * (1024 * 1024);
+	$chunksize = 1024 * 1024;
 	$buffer    = '';
 	$cnt       = 0;
-	$handle    = fopen( $file, 'r' );
+	$handle    = @fopen( $file, 'r' );
 
-	if( $size = @filesize( $file ) ) header("Content-Length: " . $size );
+	if ( $size = @filesize( $file ) ) {
+		header("Content-Length: " . $size );
+	}
 
-	if ( $handle === FALSE ) return FALSE;
+	if ( false === $handle ) {
+		return false;
+	}
 
-	while ( ! feof( $handle ) ) :
-	   $buffer = fread( $handle, $chunksize );
-	   echo $buffer;
-	   //ob_flush();
-	   //flush();
+	while ( ! @feof( $handle ) ) {
+		$buffer = @fread( $handle, $chunksize );
+		echo $buffer;
 
-	   if ( $retbytes ) $cnt += strlen( $buffer );
-	endwhile;
+		if ( $retbytes ) {
+			$cnt += strlen( $buffer );
+		}
+	}
 
-	$status = fclose( $handle );
+	$status = @fclose( $handle );
 
-	if ( $retbytes AND $status ) return $cnt;
+	if ( $retbytes && $status ) {
+		return $cnt;
+	}
 
 	return $status;
+}
+
+/**
+ * Used to process an old URL format for downloads
+ *
+ * @since  2.3
+ * @param  array $args Arguements provided to download a file
+ * @return array       Same arguements, with the status of verification added
+ */
+function edd_process_legacy_download_url( $args ) {
+
+	// Verify the payment
+	$args['payment'] = edd_verify_download_link( $args['download'], $args['key'], $args['email'], $args['expire'], $args['file_key'] );
+
+	// Defaulting this to true for now because the method below doesn't work well
+	$args['has_access'] = true;
+
+	$args['payment']    = $args['payment'];
+	$args['has_access'] = $args['has_access'];
+
+	return $args;
+}
+
+/**
+ * Used to process a signed URL for processing downloads
+ *
+ * @since  2.3
+ * @param  array $args Arguements provided to download a file
+ * @return array       Same arguements, with the status of verification added
+ */
+function edd_process_signed_download_url( $args ) {
+
+	$parts = parse_url( add_query_arg( array() ) );
+	wp_parse_str( $parts['query'], $query_args );
+	$url = add_query_arg( $query_args, home_url() );
+
+	$valid_token = edd_validate_url_token( $url );
+
+	// Bail if the token isn't valid.
+	// The request should pass through EDD, or custom handling can be enabled with the action.
+	if ( ! $valid_token ) {
+		$args['payment'] = false;
+		$args['has_access'] = false;
+
+		return $args;
+	}
+
+	$order_parts = explode( ':', rawurldecode( $_GET['eddfile'] ) );
+	
+	// Check to make sure not at download limit
+	if ( edd_is_file_at_download_limit( $order_parts[1], $order_parts[0], $order_parts[2], $order_parts[3] ) ) {
+		wp_die( apply_filters( 'edd_download_limit_reached_text', __( 'Sorry but you have hit your download limit for this file.', 'edd' ) ), __( 'Error', 'edd' ), array( 'response' => 403 ) );	
+	}
+	
+	$args['expire']      = $_GET['ttl'];
+	$args['download']    = $order_parts[1];
+	$args['payment']     = $order_parts[0];
+	$args['file_key']    = $order_parts[2];
+	$args['price_id']    = $order_parts[3];
+	$args['email']       = get_post_meta( $order_parts[0], '_edd_payment_user_email', true );
+	$args['key']         = get_post_meta( $order_parts[0], '_edd_payment_purchase_key', true );
+	$args['has_access']  = true;
+
+	return $args;
 }

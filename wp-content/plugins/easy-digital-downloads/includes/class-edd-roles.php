@@ -4,10 +4,13 @@
  *
  * @package     EDD
  * @subpackage  Classes/Roles
- * @copyright   Copyright (c) 2012, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.4.4
 */
+
+// Exit if accessed directly
+if ( ! defined( 'ABSPATH' ) ) exit;
 
 /**
  * EDD_Roles Class
@@ -26,7 +29,10 @@ class EDD_Roles {
 	 *
 	 * @since 1.4.4
 	 */
-	public function __construct() { /* Do nothing here */ }
+	public function __construct() {
+
+		add_filter( 'map_meta_cap', array( $this, 'meta_caps' ), 10, 4 );
+	}
 
 	/**
 	 * Add new shop roles with default WP caps
@@ -93,15 +99,17 @@ class EDD_Roles {
 	 *
 	 * @access public
 	 * @since  1.4.4
-	 * @global obj $wp_roles
+	 * @global WP_Roles $wp_roles
 	 * @return void
 	 */
 	public function add_caps() {
 		global $wp_roles;
 
-		if ( class_exists('WP_Roles') )
-			if ( ! isset( $wp_roles ) )
+		if ( class_exists('WP_Roles') ) {
+			if ( ! isset( $wp_roles ) ) {
 				$wp_roles = new WP_Roles();
+			}
+		}
 
 		if ( is_object( $wp_roles ) ) {
 			$wp_roles->add_cap( 'shop_manager', 'view_shop_reports' );
@@ -176,11 +184,47 @@ class EDD_Roles {
 				"manage_{$capability_type}_terms",
 				"edit_{$capability_type}_terms",
 				"delete_{$capability_type}_terms",
-				"assign_{$capability_type}_terms"
+				"assign_{$capability_type}_terms",
+
+				// Custom
+				"view_{$capability_type}_stats"
 			);
 		}
 
 		return $capabilities;
+	}
+
+	/**
+	 * Map meta caps to primitive caps
+	 *
+	 * @access public
+	 * @since  2.0
+	 * @return array $caps
+	 */
+	public function meta_caps( $caps, $cap, $user_id, $args ) {
+
+		switch( $cap ) {
+
+			case 'view_product_stats' :
+
+				if( empty( $args[0] ) ) {
+					break;
+				}
+
+				$download = get_post( $args[0] );
+				if ( empty( $download ) ) {
+					break;
+				}
+
+				if( user_can( $user_id, 'view_shop_reports' ) || $user_id == $download->post_author ) {
+					$caps = array();
+				}
+
+				break;
+		}
+
+		return $caps;
+
 	}
 
 	/**
@@ -191,9 +235,14 @@ class EDD_Roles {
 	 * @return void
 	 */
 	public function remove_caps() {
-		if ( class_exists( 'WP_Roles' ) )
-			if ( ! isset( $wp_roles ) )
+
+		global $wp_roles;
+
+		if ( class_exists( 'WP_Roles' ) ) {
+			if ( ! isset( $wp_roles ) ) {
 				$wp_roles = new WP_Roles();
+			}
+		}
 
 		if ( is_object( $wp_roles ) ) {
 			/** Shop Manager Capabilities */

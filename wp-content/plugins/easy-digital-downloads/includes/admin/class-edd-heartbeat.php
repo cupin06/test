@@ -4,11 +4,13 @@
  *
  * @package     EDD
  * @subpackage  Admin
- * @copyright   Copyright (c) 2012, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.8
 */
 
+// Exit if accessed directly
+if ( ! defined( 'ABSPATH' ) ) exit;
 
 /**
  * EDD_Heartbeart Class
@@ -57,10 +59,12 @@ class EDD_Heartbeat {
 			$earnings = edd_get_total_earnings();
 
 			// Send back the number of complete payments
-			$response['edd-total-payments'] = number_format_i18n( edd_get_total_sales() );
-			$response['edd-total-earnings'] = html_entity_decode( edd_currency_filter( $earnings ), ENT_COMPAT, 'UTF-8' );
-			$response['edd-payments-month'] = number_format_i18n( $stats->get_sales( 0, 'this_month', false, array( 'publish', 'revoked' ) ) );
-			$response['edd-earnings-month'] = html_entity_decode( edd_currency_filter( $stats->get_earnings( 0, 'this_month' ) ), ENT_COMPAT, 'UTF-8' );
+			$response['edd-total-payments'] = edd_format_amount( edd_get_total_sales(), false );
+			$response['edd-total-earnings'] = html_entity_decode( edd_currency_filter( edd_format_amount( $earnings ) ), ENT_COMPAT, 'UTF-8' );
+			$response['edd-payments-month'] = edd_format_amount( $stats->get_sales( 0, 'this_month', false, array( 'publish', 'revoked' ) ), false );
+			$response['edd-earnings-month'] = html_entity_decode( edd_currency_filter( edd_format_amount( $stats->get_earnings( 0, 'this_month' ) ) ), ENT_COMPAT, 'UTF-8' );
+			$response['edd-payments-today'] = edd_format_amount( $stats->get_sales( 0, 'today', false, array( 'publish', 'revoked' ) ), false );
+			$response['edd-earnings-today'] = html_entity_decode( edd_currency_filter( edd_format_amount( $stats->get_earnings( 0, 'today' ) ) ), ENT_COMPAT, 'UTF-8' );
 
 		}
 
@@ -97,37 +101,56 @@ class EDD_Heartbeat {
 		global $pagenow;
 
 		// Only proceed if on the dashboard
-		if( 'index.php' != $pagenow )
+		if( 'index.php' != $pagenow ) {
 			return;
+		}
+
+		if( ! current_user_can( 'view_shop_reports' ) ) {
+			return; // Only load heartbeat if current user can view show reports
+		}
+
 		?>
 		<script>
 			(function($){
+				// Hook into the heartbeat-send
+				$(document).on('heartbeat-send', function(e, data) {
+					data['edd_heartbeat'] = 'dashboard_summary';
+				});
 
-			// Hook into the heartbeat-send
-			$(document).on('heartbeat-send', function(e, data) {
-				data['edd_heartbeat'] = 'dashboard_summary';
-			});
+				// Listen for the custom event "heartbeat-tick" on $(document).
+				$(document).on( 'heartbeat-tick', function(e, data) {
 
-			// Listen for the custom event "heartbeat-tick" on $(document).
-			$(document).on( 'heartbeat-tick', function(e, data) {
+					// Only proceed if our EDD data is present
+					if ( ! data['edd-total-payments'] )
+						return;
 
-				// Only proceed if our EDD data is present
-				if ( ! data['edd-total-payments'] )
-					return;
+					<?php if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) : ?>
+					console.log('tick');
+					<?php endif; ?>
 
-				// Update sale count and bold it to provide a highlight
-				$('.edd_dashboard_widget .b.b-earnings').text( data['edd-total-earnings'] ).css( 'font-weight', 'bold' );
-				$('.edd_dashboard_widget .b.b-sales').text( data['edd-total-payments'] ).css( 'font-weight', 'bold' );
-				$('.edd_dashboard_widget .table_current_month .b.b-earnings').text( data['edd-earnings-month'] ).css( 'font-weight', 'bold' );
-				$('.edd_dashboard_widget .table_current_month .b.b-sales').text( data['edd-payments-month'] ).css( 'font-weight', 'bold' );
+					// Update sale count and bold it to provide a highlight
+					edd_dashboard_heartbeat_update( '.edd_dashboard_widget .table_totals .b.b-earnings', data['edd-total-earnings'] );
+					edd_dashboard_heartbeat_update( '.edd_dashboard_widget .table_totals .b.b-sales', data['edd-total-payments'] );
+					edd_dashboard_heartbeat_update( '.edd_dashboard_widget .table_today .b.b-earnings', data['edd-earnings-today'] );
+					edd_dashboard_heartbeat_update( '.edd_dashboard_widget .table_today .b.b-sales', data['edd-payments-today'] );
+					edd_dashboard_heartbeat_update( '.edd_dashboard_widget .table_current_month .b-earnings', data['edd-earnings-month'] );
+					edd_dashboard_heartbeat_update( '.edd_dashboard_widget .table_current_month .b-sales', data['edd-payments-month'] );
 
-				// Return font-weight to normal after 2 seconds
-				setTimeout(function(){
-					$('.edd_dashboard_widget .b.b-sales,.edd_dashboard_widget .b.b-earnings').css( 'font-weight', 'normal' );
-					$('.edd_dashboard_widget .table_current_month .b.b-earnings,.edd_dashboard_widget .table_current_month .b.b-sales').css( 'font-weight', 'normal' );
-				}, 2000);
+					// Return font-weight to normal after 2 seconds
+					setTimeout(function(){
+						$('.edd_dashboard_widget .b.b-sales,.edd_dashboard_widget .b.b-earnings').css( 'font-weight', 'normal' );
+						$('.edd_dashboard_widget .table_current_month .b.b-earnings,.edd_dashboard_widget .table_current_month .b.b-sales').css( 'font-weight', 'normal' );
+					}, 2000);
 
-			});
+				});
+
+				function edd_dashboard_heartbeat_update( selector, new_value ) {
+					var current_value = $(selector).text();
+					$(selector).text( new_value );
+					if ( current_value !== new_value ) {
+						$(selector).css( 'font-weight', 'bold' );
+					}
+				}
 			}(jQuery));
 		</script>
 		<?php

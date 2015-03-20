@@ -4,7 +4,7 @@
  *
  * @package     EDD
  * @subpackage  Admin/Downloads
- * @copyright   Copyright (c) 2014, Pippin Williamson
+ * @copyright   Copyright (c) 2015, Pippin Williamson
  * @license     http://opensource.org/licenses/gpl-2.0.php GNU Public License
  * @since       1.0
  */
@@ -49,12 +49,10 @@ add_filter( 'manage_edit-download_columns', 'edd_download_columns' );
  */
 function edd_render_download_columns( $column_name, $post_id ) {
 	if ( get_post_type( $post_id ) == 'download' ) {
-		global $edd_options;
-
-		$style 			= isset( $edd_options['button_style'] ) ? $edd_options['button_style'] : 'button';
-		$color 			= isset( $edd_options['checkout_color'] ) ? $edd_options['checkout_color'] : 'blue';
-		$color			= ( $color == 'inherit' ) ? '' : $color;
-		$purchase_text 	= ! empty( $edd_options['add_to_cart_text'] ) ? $edd_options['add_to_cart_text'] : __( 'Purchase', 'edd' );
+		$style          = edd_get_option( 'button_style', 'button' );
+		$color          = edd_get_option( 'checkout_color', 'blue' );
+		$color          = ( $color == 'inherit' ) ? '' : $color;
+		$purchase_text  = edd_get_option( 'add_to_cart_text', __( 'Purchase', 'edd' ) );
 
 		switch ( $column_name ) {
 			case 'download_category':
@@ -72,15 +70,19 @@ function edd_render_download_columns( $column_name, $post_id ) {
 				}
 				break;
 			case 'sales':
-				if ( current_user_can( 'edit_product', $post_id ) || current_user_can( 'view_shop_reports' ) ) {
-					echo edd_get_download_sales_stats( $post_id );
+				if ( current_user_can( 'view_product_stats', $post_id ) ) {
+					echo '<a href="' . esc_url( admin_url( 'edit.php?post_type=download&page=edd-reports&tab=logs&view=sales&download=' . $post_id ) ) . '">';
+						echo edd_get_download_sales_stats( $post_id );
+					echo '</a>';
 				} else {
 					echo '-';
 				}
 				break;
 			case 'earnings':
-				if ( current_user_can( 'edit_product', $post_id ) || current_user_can( 'view_shop_reports' ) ) {
-					echo edd_currency_filter( edd_format_amount( edd_get_download_earnings_stats( $post_id ) ) );
+				if ( current_user_can( 'view_product_stats', $post_id ) ) {
+					echo '<a href="' . esc_url( admin_url( 'edit.php?post_type=download&page=edd-reports&view=downloads&download-id=' . $post_id ) ) . '">';
+						echo edd_currency_filter( edd_format_amount( edd_get_download_earnings_stats( $post_id ) ) );
+					echo '</a>';
 				} else {
 					echo '-';
 				}
@@ -157,6 +159,38 @@ function edd_sort_downloads( $vars ) {
 }
 
 /**
+ * Sets restrictions on author of Downloads List Table
+ *
+ * @since  2.2
+ * @param  array $vars Array of all sort varialbes
+ * @return array       Array of all sort variables
+ */
+function edd_filter_downloads( $vars ) {
+	if ( isset( $vars['post_type'] ) && 'download' == $vars['post_type'] ) {
+
+		// If an author ID was passed, use it
+		if ( isset( $_REQUEST['author'] ) && ! current_user_can( 'view_shop_reports' ) ) {
+
+			$author_id = $_REQUEST['author'];
+			if ( (int) $author_id !== get_current_user_id() ) {
+				// Tried to view the products of another person, sorry
+				wp_die( __( 'You do not have permission to view this data.', 'edd' ), __( 'Error', 'edd' ), array( 'response' => 403 ) );
+			}
+			$vars = array_merge(
+				$vars,
+				array(
+					'author' => get_current_user_id()
+				)
+			);
+
+		}
+
+	}
+
+	return $vars;
+}
+
+/**
  * Download Load
  *
  * Sorts the downloads.
@@ -166,6 +200,7 @@ function edd_sort_downloads( $vars ) {
  */
 function edd_download_load() {
 	add_filter( 'request', 'edd_sort_downloads' );
+	add_filter( 'request', 'edd_filter_downloads' );
 }
 add_action( 'load-edit.php', 'edd_download_load', 9999 );
 
@@ -203,10 +238,39 @@ function edd_add_download_filters() {
 				}
 			echo "</select>";
 		}
+
+		if ( isset( $_REQUEST['all_posts'] ) && '1' === $_REQUEST['all_posts'] ) {
+			echo '<input type="hidden" name="all_posts" value="1" />';
+		} else if ( ! current_user_can( 'view_shop_reports' ) ) {
+			$author_id = get_current_user_id();
+			echo '<input type="hidden" name="author" value="' . esc_attr( $author_id ) . '" />';
+		}
 	}
 
 }
 add_action( 'restrict_manage_posts', 'edd_add_download_filters', 100 );
+
+/**
+ * Remove Download Month Filter
+ *
+ * Removes the drop down filter for downloads by date.
+ *
+ * @author Daniel J Griffiths
+ * @since 2.1
+ * @param array $dates The preset array of dates
+ * @global $typenow The post type we are viewing
+ * @return array Empty array disables the dropdown
+ */
+function edd_remove_month_filter( $dates ) {
+	global $typenow;
+
+	if ( $typenow == 'download' ) {
+		$dates = array();
+	}
+
+	return $dates;
+}
+add_filter( 'months_dropdown_results', 'edd_remove_month_filter', 99 );
 
 /**
  * Adds price field to Quick Edit options
@@ -261,11 +325,17 @@ add_action( 'save_post', 'edd_price_save_quick_edit' );
  * @return void
  */
 function edd_save_bulk_edit() {
-	$post_ids = ( isset( $_POST[ 'post_ids' ] ) && ! empty( $_POST[ 'post_ids' ] ) ) ? $_POST[ 'post_ids' ] : array();
+
+	$post_ids = ( isset( $_POST['post_ids'] ) && ! empty( $_POST['post_ids'] ) ) ? $_POST['post_ids'] : array();
 
 	if ( ! empty( $post_ids ) && is_array( $post_ids ) ) {
 		$price = isset( $_POST['price'] ) ? strip_tags( stripslashes( $_POST['price'] ) ) : 0;
 		foreach ( $post_ids as $post_id ) {
+
+			if( ! current_user_can( 'edit_post', $post_id ) ) {
+				continue;
+			}
+
 			if ( ! empty( $price ) ) {
 				update_post_meta( $post_id, 'edd_price', edd_sanitize_amount( $price ) );
 			}
