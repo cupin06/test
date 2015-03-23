@@ -23,6 +23,8 @@ wp-content/plugins/*
 !wp-content/plugins/wordpress-importer
 !wp-content/plugins/sd-events
 !wp-content/plugins/easy-digital-downloads
+!wp-content/plugins/wp-sync-db-1.5
+!wp-content/plugins/really-simple-captcha
  
 # Ignore everything in the "themes" directory, except the themes you specify
 wp-content/themes/*
